@@ -2,17 +2,15 @@ import os
 import logging
 import uuid
 import tempfile
-from flask import Flask, request, jsonify
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ChatAction
 from telegram.ext import (
-    Dispatcher,
+    Updater,
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
     Filters,
     ConversationHandler,
     run_async,
-    Updater
 )
 import yt_dlp
 
@@ -26,7 +24,7 @@ logger = logging.getLogger(__name__)
 # Conversation states
 SELECT_LANG, SELECT_TYPE, WAIT_FOR_URL = range(3)
 
-# Bot token
+# Bot token (hardcoded)         
 TOKEN = "7878902861:AAE_7lmD0AnRHgNPYXzwQbNsQnhoYZCfUNQ"
 
 # Optional: set custom ffmpeg/ffprobe location via env var
@@ -60,15 +58,9 @@ i18n = {
     }
 }
 
-# Flask app
-app = Flask(__name__)
-
-# Initialize Updater & Dispatcher
-updater = Updater(token=TOKEN, use_context=True)
-dispatcher: Dispatcher = updater.dispatcher
-
 @run_async
 def start(update: Update, context):
+    """Entry point: ask user to choose language"""
     keyboard = [
         [InlineKeyboardButton("🇺🇿 Uzbek", callback_data='lang_uz'),
          InlineKeyboardButton("🇬🇧 English", callback_data='lang_en')]
@@ -77,8 +69,8 @@ def start(update: Update, context):
     update.message.reply_text(i18n['en']['welcome'], reply_markup=reply_markup)
     return SELECT_LANG
 
-
 def language_handler(update: Update, context):
+    """Handle language selection and ask download type"""
     query = update.callback_query
     query.answer()
     lang = query.data.split('_')[1]
@@ -88,11 +80,12 @@ def language_handler(update: Update, context):
         [InlineKeyboardButton("📹 " + ("Download Video" if lang=='en' else "Video yuklash"), callback_data='type_video'),
          InlineKeyboardButton("🎵 " + ("Download Audio" if lang=='en' else "Audio yuklash"), callback_data='type_audio')]
     ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     query.edit_message_text(texts['ask_type'], reply_markup=reply_markup)
     return SELECT_TYPE
 
-
 def type_handler(update: Update, context):
+    """Handle media type selection and ask for URL"""
     query = update.callback_query
     query.answer()
     mode = query.data.split('_')[1]
@@ -101,11 +94,12 @@ def type_handler(update: Update, context):
     texts = i18n[lang]
     choice_text = ("Video" if mode=='video' else "Audio")
     query.edit_message_text(texts['selected'].format(choice=choice_text))
-    query.bot.send_message(chat_id=query.message.chat.id, text=texts['ask_url'])
+    query.bot.send_message(chat_id=query.message.chat_id, text=texts['ask_url'])
     return WAIT_FOR_URL
 
 @run_async
 def download_media(update: Update, context):
+    """Download the media from given URL and send back; then ask again"""
     url = update.message.text.strip()
     mode = context.user_data.get('mode', 'audio')
     lang = context.user_data.get('lang', 'en')
@@ -130,6 +124,7 @@ def download_media(update: Update, context):
             'preferredquality': '192'
         }] if mode=='audio' else [],
         'ffmpeg_location': FFMPEG_PATH,
+        # speed up fragments (for HLS streams)
         'concurrent_fragment_downloads': 4,
     }
 
@@ -150,7 +145,8 @@ def download_media(update: Update, context):
             send_file(file_path)
         else:
             update.message.reply_text(texts['not_found'])
-    except yt_dlp.utils.DownloadError:
+    except yt_dlp.utils.DownloadError as de:
+        logger.warning("Primary download failed, retrying fallback: %s", de)
         try:
             fallback_opts = {
                 'format': 'bestaudio' if mode=='audio' else 'best',
@@ -171,12 +167,14 @@ def download_media(update: Update, context):
         logger.error("Unexpected error: %s", e)
         update.message.reply_text(texts['unexpected'].format(error=e))
     finally:
+        # Cleanup
         for f in os.listdir(temp_dir):
             try: os.remove(os.path.join(temp_dir, f))
             except: pass
         try: os.rmdir(temp_dir)
         except: pass
 
+    # Ask again
     keyboard = [
         [InlineKeyboardButton("📹 " + ("Video" if lang=='en' else "Video yuklash"), callback_data='type_video'),
          InlineKeyboardButton("🎵 " + ("Audio" if lang=='en' else "Audio yuklash"), callback_data='type_audio')]
@@ -192,30 +190,19 @@ def cancel(update: Update, context):
     update.message.reply_text(texts['cancelled'])
     return ConversationHandler.END
 
-# Register handlers
-conv = ConversationHandler(
-    entry_points=[CommandHandler('start', start)],
-    states={
-        SELECT_LANG: [CallbackQueryHandler(language_handler, pattern='^lang_')],
-        SELECT_TYPE: [CallbackQueryHandler(type_handler, pattern='^type_')],
-        WAIT_FOR_URL: [MessageHandler(Filters.text & ~Filters.command, download_media)]
-    },
-    fallbacks=[CommandHandler('cancel', cancel)]
-)
-dispatcher.add_handler(conv)
-
-# Flask webhook endpoint\@app.route('/webhook', methods=['POST'])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), updater.bot)
-    dispatcher.process_update(update)
-    return 'OK'
-
-@app.route('/')
-def index():
-    return 'Bot is running.'
-
 if __name__ == '__main__':
-    WEBHOOK_URL = os.getenv('WEBHOOK_URL', 'https://yourdomain.com/webhook')
-    updater.bot.set_webhook(WEBHOOK_URL)
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    updater = Updater(token=TOKEN, use_context=True)
+    dp = updater.dispatcher
+    conv = ConversationHandler(
+        entry_points=[CommandHandler('start', start)],
+        states={
+            SELECT_LANG: [CallbackQueryHandler(language_handler, pattern='^lang_')],
+            SELECT_TYPE: [CallbackQueryHandler(type_handler, pattern='^type_')],
+            WAIT_FOR_URL: [MessageHandler(Filters.text & ~Filters.command, download_media)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)]
+    )
+    dp.add_handler(conv)
+    updater.start_polling()
+    logger.info("Bot polling started.")
+    updater.idle()
