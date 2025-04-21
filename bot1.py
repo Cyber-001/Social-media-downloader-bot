@@ -77,8 +77,8 @@ def language_handler(update: Update, context):
     context.user_data['lang'] = lang
     texts = i18n[lang]
     keyboard = [
-        [InlineKeyboardButton("📹 " + ("Download Video" if lang=='en' else "Video yuklash"), callback_data='type_video'),
-         InlineKeyboardButton("🎵 " + ("Download Audio" if lang=='en' else "Audio yuklash"), callback_data='type_audio')]
+        [InlineKeyboardButton("📹 " + ("Download Video" if lang == 'en' else "Video yuklash"), callback_data='type_video'),
+         InlineKeyboardButton("🎵 " + ("Download Audio" if lang == 'en' else "Audio yuklash"), callback_data='type_audio')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     query.edit_message_text(texts['ask_type'], reply_markup=reply_markup)
@@ -92,7 +92,7 @@ def type_handler(update: Update, context):
     context.user_data['mode'] = mode
     lang = context.user_data.get('lang', 'en')
     texts = i18n[lang]
-    choice_text = ("Video" if mode=='video' else "Audio")
+    choice_text = ("Video" if mode == 'video' else "Audio")
     query.edit_message_text(texts['selected'].format(choice=choice_text))
     query.bot.send_message(chat_id=query.message.chat_id, text=texts['ask_url'])
     return WAIT_FOR_URL
@@ -114,33 +114,34 @@ def download_media(update: Update, context):
     out_tmpl = os.path.join(temp_dir, f"{mode}_{uid}.%(ext)s")
 
     ydl_opts = {
-        'format': 'bestaudio/best' if mode=='audio' else 'bestvideo+bestaudio/best',
+        'format': 'bestaudio/best' if mode == 'audio' else 'bestvideo+bestaudio/best',
         'outtmpl': out_tmpl,
         'noplaylist': False,
-        'merge_output_format': 'mp4' if mode=='video' else None,
+        'merge_output_format': 'mp4' if mode == 'video' else None,
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
             'preferredquality': '192'
-        }] if mode=='audio' else [],
+        }] if mode == 'audio' else [],
         'ffmpeg_location': FFMPEG_PATH,
-        # speed up fragments (for HLS streams)
         'concurrent_fragment_downloads': 4,
     }
 
     def send_file(path):
-        action = ChatAction.UPLOAD_AUDIO if mode=='audio' else ChatAction.UPLOAD_VIDEO
+        action = ChatAction.UPLOAD_AUDIO if mode == 'audio' else ChatAction.UPLOAD_VIDEO
         context.bot.send_chat_action(chat_id=chat_id, action=action)
-        if mode=='audio':
-            update.message.reply_audio(audio=open(path, 'rb'))
+        if mode == 'audio':
+            with open(path, 'rb') as f:
+                update.message.reply_audio(audio=f)
         else:
-            update.message.reply_video(video=open(path, 'rb'))
+            with open(path, 'rb') as f:
+                update.message.reply_video(video=f)
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
-            file_path = (os.path.splitext(filename)[0] + '.mp3') if mode=='audio' else filename
+            file_path = (os.path.splitext(filename)[0] + '.mp3') if mode == 'audio' else filename
         if os.path.exists(file_path):
             send_file(file_path)
         else:
@@ -149,7 +150,7 @@ def download_media(update: Update, context):
         logger.warning("Primary download failed, retrying fallback: %s", de)
         try:
             fallback_opts = {
-                'format': 'bestaudio' if mode=='audio' else 'best',
+                'format': 'bestaudio' if mode == 'audio' else 'best',
                 'outtmpl': out_tmpl,
                 'noplaylist': False
             }
@@ -169,15 +170,19 @@ def download_media(update: Update, context):
     finally:
         # Cleanup
         for f in os.listdir(temp_dir):
-            try: os.remove(os.path.join(temp_dir, f))
-            except: pass
-        try: os.rmdir(temp_dir)
-        except: pass
+            try:
+                os.remove(os.path.join(temp_dir, f))
+            except Exception as e:
+                logger.warning(f"Failed to remove file: {e}")
+        try:
+            os.rmdir(temp_dir)
+        except Exception as e:
+            logger.warning(f"Failed to remove directory: {e}")
 
     # Ask again
     keyboard = [
-        [InlineKeyboardButton("📹 " + ("Video" if lang=='en' else "Video yuklash"), callback_data='type_video'),
-         InlineKeyboardButton("🎵 " + ("Audio" if lang=='en' else "Audio yuklash"), callback_data='type_audio')]
+        [InlineKeyboardButton("📹 " + ("Video" if lang == 'en' else "Video yuklash"), callback_data='type_video'),
+         InlineKeyboardButton("🎵 " + ("Audio" if lang == 'en' else "Audio yuklash"), callback_data='type_audio')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     context.bot.send_message(chat_id=chat_id, text=texts['again'], reply_markup=reply_markup)
