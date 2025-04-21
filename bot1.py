@@ -25,7 +25,6 @@ logger = logging.getLogger(__name__)
 
 # Flask app for health check
 app = Flask(__name__)
-
 @app.route('/')
 def home():
     return '🤖 Bot is alive!'
@@ -33,20 +32,41 @@ def home():
 # Conversation states
 SELECT_LANG, SELECT_TYPE, WAIT_FOR_URL = range(3)
 
-# Bot token: environment variable fallback to hardcoded
+# Bot token: env var fallback to hardcoded
 TOKEN = os.getenv("TOKEN") or "7878902861:AAE_7lmD0AnRHgNPYXzwQbNsQnhoYZCfUNQ"
-
-# FFmpeg path
 FFMPEG_PATH = os.getenv('FFMPEG_PATH', 'ffmpeg')
 
 # Localization strings
 i18n = {
-    'en': { ... },  # keep your existing dict
-    'uz': { ... }
+    'en': {
+        'welcome': "👋 Welcome! Please choose your language:",
+        'ask_type': "What are you downloading?",
+        'selected': "You selected: {choice}.",
+        'ask_url': "Send me the URL.",
+        'downloading': "⏳ Downloading now, please wait...",
+        'not_found': "❌ Download finished, but file not found.",
+        'error_url': "❌ Could not download media. Please ensure the URL is correct.",
+        'unexpected': "❌ An unexpected error occurred: {error}",
+        'again': "What else would you like to download?",
+        'cancelled': "Operation cancelled. Use /start to try again.",
+    },
+    'uz': {
+        'welcome': "👋 Salom! Iltimos, tilni tanlang:",
+        'ask_type': "Nima yuklamoqchisiz?",
+        'selected': "Siz tanladingiz: {choice}.",
+        'ask_url': "URL manzilini yuboring.",
+        'downloading': "⏳ Yuklanmoqda, iltimos kuting...",
+        'not_found': "❌ Yuklash yakunlandi, ammo fayl topilmadi.",
+        'error_url': "❌ Media yuklab bo'lmadi. Iltimos URL tog'ri ekanligini tekshiring.",
+        'unexpected': "❌ Kutilmagan xatolik yuz berdi: {error}",
+        'again': "Yana nima yuklamoqchisiz?",
+        'cancelled': "Amal bekor qilindi. Yana /start buyrug'i bilan boshlang.",
+    }
 }
 
 @run_async
 def start(update: Update, context):
+    """Show bilingual language selection menu"""
     keyboard = [[
         InlineKeyboardButton("🇺🇿 Uzbek", callback_data='lang_uz'),
         InlineKeyboardButton("🇬🇧 English", callback_data='lang_en')
@@ -67,7 +87,8 @@ def language_handler(update: Update, context):
         InlineKeyboardButton("📹 " + ("Download Video" if lang=='en' else "Video yuklash"), callback_data='type_video'),
         InlineKeyboardButton("🎵 " + ("Download Audio" if lang=='en' else "Audio yuklash"), callback_data='type_audio')
     ]]
-    query.edit_message_text(texts['ask_type'], reply_markup=InlineKeyboardMarkup(keyboard))
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    query.edit_message_text(texts['ask_type'], reply_markup=reply_markup)
     return SELECT_TYPE
 
 
@@ -138,12 +159,12 @@ def download_media(update: Update, context):
             pass
 
     # Ask again
-    texts = i18n[lang]
     keyboard = [[
         InlineKeyboardButton("📹 " + ("Video" if lang=='en' else "Video yuklash"), callback_data='type_video'),
         InlineKeyboardButton("🎵 " + ("Audio" if lang=='en' else "Audio yuklash"), callback_data='type_audio')
     ]]
-    context.bot.send_message(chat_id=chat_id, text=texts['again'], reply_markup=InlineKeyboardMarkup(keyboard))
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    context.bot.send_message(chat_id=chat_id, text=texts['again'], reply_markup=reply_markup)
     return SELECT_TYPE
 
 @run_async
@@ -170,7 +191,6 @@ def start_bot():
     updater.idle()
 
 if __name__ == '__main__':
-    # Launch bot and health-check
     Thread(target=start_bot).start()
     port = int(os.getenv('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
