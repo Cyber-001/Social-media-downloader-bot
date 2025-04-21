@@ -33,11 +33,8 @@ def home():
 # Conversation states
 SELECT_LANG, SELECT_TYPE, WAIT_FOR_URL = range(3)
 
-# Bot token from environment
-TOKEN = os.getenv("TOKEN")
-if not TOKEN:
-    logger.error("TOKEN environment variable not set. Exiting.")
-    exit(1)
+# Bot token: use environment variable if set, otherwise fallback to original token
+TOKEN = os.getenv("TOKEN") or "7878902861:AAE_7lmD0AnRHgNPYXzwQbNsQnhoYZCfUNQ"
 
 # Optional: custom ffmpeg/ffprobe
 FFMPEG_PATH = os.getenv('FFMPEG_PATH', 'ffmpeg')
@@ -78,10 +75,10 @@ def start(update: Update, context):
          InlineKeyboardButton("🇬🇧 English", callback_data='lang_en')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    # Bilingual prompt
     prompt = "👋 Please choose your language / Iltimos, tilni tanlang:"
     update.message.reply_text(prompt, reply_markup=reply_markup)
     return SELECT_LANG
+
 
 def language_handler(update: Update, context):
     query = update.callback_query
@@ -96,6 +93,7 @@ def language_handler(update: Update, context):
     reply_markup = InlineKeyboardMarkup(keyboard)
     query.edit_message_text(texts['ask_type'], reply_markup=reply_markup)
     return SELECT_TYPE
+
 
 def type_handler(update: Update, context):
     query = update.callback_query
@@ -178,47 +176,4 @@ def download_media(update: Update, context):
         update.message.reply_text(texts['unexpected'].format(error=e))
     finally:
         for f in os.listdir(temp_dir):
-            try: os.remove(os.path.join(temp_dir, f))
-            except: pass
-        try: os.rmdir(temp_dir)
-        except: pass
-
-    keyboard = [
-        [InlineKeyboardButton("📹 " + ("Video" if lang=='en' else "Video yuklash"), callback_data='type_video'),
-         InlineKeyboardButton("🎵 " + ("Audio" if lang=='en' else "Audio yuklash"), callback_data='type_audio')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    context.bot.send_message(chat_id=chat_id, text=texts['again'], reply_markup=reply_markup)
-    return SELECT_TYPE
-
-@run_async
-def cancel(update: Update, context):
-    lang = context.user_data.get('lang', 'en')
-    texts = i18n[lang]
-    update.message.reply_text(texts['cancelled'])
-    return ConversationHandler.END
-
-# Wrapper to start bot in a separate thread
-def start_bot():
-    updater = Updater(token=TOKEN, use_context=True)
-    dp = updater.dispatcher
-    conv = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
-        states={
-            SELECT_LANG: [CallbackQueryHandler(language_handler, pattern='^lang_')],
-            SELECT_TYPE: [CallbackQueryHandler(type_handler, pattern='^type_')],
-            WAIT_FOR_URL: [MessageHandler(Filters.text & ~Filters.command, download_media)]
-        },
-        fallbacks=[CommandHandler('cancel', cancel)]
-    )
-    dp.add_handler(conv)
-    updater.start_polling()
-    logger.info("Bot polling started.")
-    updater.idle()
-
-if __name__ == '__main__':
-    # Start bot in background
-    Thread(target=start_bot).start()
-    # Run health-check server
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+            try: os.remove(os.path.join(temp
