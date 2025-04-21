@@ -2,6 +2,8 @@ import os
 import logging
 import uuid
 import tempfile
+from threading import Thread
+from flask import Flask
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ChatAction
 from telegram.ext import (
     Updater,
@@ -21,13 +23,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Flask app for health check
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return '🤖 Bot is alive!'
+
 # Conversation states
 SELECT_LANG, SELECT_TYPE, WAIT_FOR_URL = range(3)
 
-# Bot token (hardcoded)
+# Bot token (keep original)
 TOKEN = "7878902861:AAE_7lmD0AnRHgNPYXzwQbNsQnhoYZCfUNQ"
 
-# Optional: set custom ffmpeg/ffprobe location via env var
+# Optional: custom ffmpeg/ffprobe
 FFMPEG_PATH = os.getenv('FFMPEG_PATH', 'ffmpeg')
 
 # Localization strings
@@ -60,7 +69,6 @@ i18n = {
 
 @run_async
 def start(update: Update, context):
-    """Entry point: ask user to choose language"""
     keyboard = [
         [InlineKeyboardButton("🇺🇿 Uzbek", callback_data='lang_uz'),
          InlineKeyboardButton("🇬🇧 English", callback_data='lang_en')]
@@ -70,7 +78,6 @@ def start(update: Update, context):
     return SELECT_LANG
 
 def language_handler(update: Update, context):
-    """Handle language selection and ask download type"""
     query = update.callback_query
     query.answer()
     lang = query.data.split('_')[1]
@@ -85,7 +92,6 @@ def language_handler(update: Update, context):
     return SELECT_TYPE
 
 def type_handler(update: Update, context):
-    """Handle media type selection and ask for URL"""
     query = update.callback_query
     query.answer()
     mode = query.data.split('_')[1]
@@ -99,7 +105,6 @@ def type_handler(update: Update, context):
 
 @run_async
 def download_media(update: Update, context):
-    """Download the media from given URL and send back; then ask again"""
     url = update.message.text.strip()
     mode = context.user_data.get('mode', 'audio')
     lang = context.user_data.get('lang', 'en')
@@ -124,7 +129,6 @@ def download_media(update: Update, context):
             'preferredquality': '192'
         }] if mode=='audio' else [],
         'ffmpeg_location': FFMPEG_PATH,
-        # speed up fragments (for HLS streams)
         'concurrent_fragment_downloads': 4,
     }
 
@@ -167,14 +171,12 @@ def download_media(update: Update, context):
         logger.error("Unexpected error: %s", e)
         update.message.reply_text(texts['unexpected'].format(error=e))
     finally:
-        # Cleanup
         for f in os.listdir(temp_dir):
             try: os.remove(os.path.join(temp_dir, f))
             except: pass
         try: os.rmdir(temp_dir)
         except: pass
 
-    # Ask again
     keyboard = [
         [InlineKeyboardButton("📹 " + ("Video" if lang=='en' else "Video yuklash"), callback_data='type_video'),
          InlineKeyboardButton("🎵 " + ("Audio" if lang=='en' else "Audio yuklash"), callback_data='type_audio')]
@@ -190,7 +192,8 @@ def cancel(update: Update, context):
     update.message.reply_text(texts['cancelled'])
     return ConversationHandler.END
 
-if __name__ == '__main__':
+# Wrapper to start bot in a separate thread
+def start_bot():
     updater = Updater(token=TOKEN, use_context=True)
     dp = updater.dispatcher
     conv = ConversationHandler(
@@ -206,3 +209,10 @@ if __name__ == '__main__':
     updater.start_polling()
     logger.info("Bot polling started.")
     updater.idle()
+
+if __name__ == '__main__':
+    # Start bot in background
+    Thread(target=start_bot).start()
+    # Run health-check server
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
