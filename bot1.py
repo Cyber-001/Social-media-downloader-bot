@@ -33,8 +33,11 @@ def home():
 # Conversation states
 SELECT_LANG, SELECT_TYPE, WAIT_FOR_URL = range(3)
 
-# Bot token (keep original)
-TOKEN = "7878902861:AAE_7lmD0AnRHgNPYXzwQbNsQnhoYZCfUNQ"
+# Bot token from environment
+TOKEN = os.getenv("TOKEN")
+if not TOKEN:
+    logger.error("TOKEN environment variable not set. Exiting.")
+    exit(1)
 
 # Optional: custom ffmpeg/ffprobe
 FFMPEG_PATH = os.getenv('FFMPEG_PATH', 'ffmpeg')
@@ -69,12 +72,15 @@ i18n = {
 
 @run_async
 def start(update: Update, context):
+    """Show bilingual language selection menu"""
     keyboard = [
         [InlineKeyboardButton("🇺🇿 Uzbek", callback_data='lang_uz'),
          InlineKeyboardButton("🇬🇧 English", callback_data='lang_en')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text(i18n['en']['welcome'], reply_markup=reply_markup)
+    # Bilingual prompt
+    prompt = "👋 Please choose your language / Iltimos, tilni tanlang:"
+    update.message.reply_text(prompt, reply_markup=reply_markup)
     return SELECT_LANG
 
 def language_handler(update: Update, context):
